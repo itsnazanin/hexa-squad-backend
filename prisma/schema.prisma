@@ -13,38 +13,264 @@ datasource db {
 }
 
 model User {
-  id    Int   @id @default(autoincrement())
-  name  String?
-  email String?  @unique
-  phone String?  @unique
-  password String
-  nationalCode String?
-  birthDate DateTime?
-  avatar String?
-  createdAt DateTime @default(now()) 
-  updatedAt DateTime @updatedAt
+  id               Int               @id @default(autoincrement())
+  name             String?
+  email            String?           @unique
+  phone            String?           @unique
+  password         String
+  nationalCode     String?
+  birthDate        DateTime?
+  avatar           String?
+  role             Role              @default(STUDENT)
+  teacher          Teacher?
+  orders           Order[]
+  favorites        Favorite[]
+  reviews          Review[]
+  comments         Comment[]
+  purchasedCourses PurchasedCourse[]
+  courseReaction   CourseReaction[]
+  blogReactions    BlogReaction[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  commentLikes     CommentLike[]
+}
+
+enum Role {
+  STUDENT
+  TEACHER
 }
 
 model Course {
-  id Int @id @default(cuid(0))
+  id               Int               @id @default(autoincrement())
+  title            String
+  shortDescription String
+  description      String
+  studentCount     Int               @default(0)
+  status           CourseStatus
+  startDate        DateTime?
+  endDate          DateTime?
+  uploadDate       DateTime?
+  courseTime       Int
+  price            Int
+  teacherId        Int
+  teacher          Teacher           @relation(fields: [teacherId], references: [id])
+  categoryId       Int
+  category         Category          @relation(fields: [categoryId], references: [id])
+  comments         Comment[]
+  favorites        Favorite[]
+  purchasedCourses PurchasedCourse[]
+  orderItem        OrderItem[]
+  sections         Section[]
+  reviews          Review[]
+  reactions        CourseReaction[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([teacherId])
+  @@index([categoryId])
+}
+
+model CourseReaction {
+  id        Int          @id @default(autoincrement())
+  userId    Int
+  courseId  Int
+  type      ReactionType
+  user      User         @relation(fields: [userId], references: [id])
+  course    Course       @relation(fields: [courseId], references: [id])
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, courseId])
+}
+
+enum CourseStatus {
+  PENDING
+  COMPLETED
+}
+
+model Teacher {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id])
+  name      String
+  avatar    String
+  bio       String
+  courses   Course[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Section {
+  id        Int      @id @default(autoincrement())
+  title     String
+  order     Int
+  courseId  Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons   Lesson[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId])
 }
 
 model Lesson {
-  id Int @id @default(cuid())
+  id        Int      @id @default(autoincrement())
+  title     String
+  duration  Int
+  order     Int
+  sectionId Int
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([sectionId])
+}
+
+model Order {
+  id         Int         @id @default(autoincrement())
+  totalPrice Int
+  status     OrderStatus
+  userId     Int
+  user       User        @relation(fields: [userId], references: [id])
+  items      OrderItem[]
+  createdAt  DateTime    @default(now())
+
+  @@index([userId])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+model OrderItem {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  courseId  Int
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id])
+  price     Int
+  createdAt DateTime @default(now())
+
+  @@unique([orderId, courseId])
+  @@index([orderId])
+  @@index([courseId])
+}
+
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  courseId  Int?
+  blogId    Int?
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course?  @relation(fields: [courseId], references: [id])
+  blog      Blog?    @relation(fields: [blogId], references: [id])
+  createdAt DateTime
+
+  @@unique([userId, courseId])
+  @@unique([userId, blogId])
+  @@index([userId])
+  @@index([courseId])
+  @@index([blogId])
+}
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  rating    Int
+  userId    Int
+  courseId  Int
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, courseId])
+  @@index([courseId])
 }
 
 model Comment {
-  id Int @id @default(cuid())
+  id       Int           @id @default(autoincrement())
+  content  String
+  userId   Int
+  courseId Int?
+  blogId   Int?
+  parentId Int?
+  user     User          @relation(fields: [userId], references: [id])
+  course   Course?       @relation(fields: [courseId], references: [id])
+  parent   Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  blog     Blog?         @relation(fields: [blogId], references: [id])
+  replies  Comment[]     @relation("CommentReplies")
+  likes    CommentLike[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([courseId])
+  @@index([blogId])
+  @@index([parentId])
 }
 
-model Enrollment {
-  id Int @id @default(cuid())
+model CommentLike {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  commentId Int
+  user      User     @relation(fields: [userId], references: [id])
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, commentId])
+  @@index([commentId])
+}
+
+model PurchasedCourse {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  courseId  Int
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
 }
 
 model Blog {
-  id Int @id @default(cuid())
+  id               Int            @id @default(autoincrement())
+  title            String
+  coverImage       String
+  blogImage        String?
+  shortDescription String
+  content          String
+  viewCount        Int            @default(0)
+  comments         Comment[]
+  favorites        Favorite[]
+  reactions        BlogReaction[]
+  author           String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model BlogReaction {
+  id        Int          @id @default(autoincrement())
+  userId    Int
+  blogId    Int
+  type      ReactionType
+  user      User         @relation(fields: [userId], references: [id])
+  blog      Blog         @relation(fields: [blogId], references: [id])
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, blogId])
+  @@index([blogId])
+}
+
+enum ReactionType {
+  LIKE
+  DISLIKE
 }
 
 model Category {
-  id Int @id @default(cuid())
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  courses   Course[]
+  createdAt DateTime @default(now())
 }
