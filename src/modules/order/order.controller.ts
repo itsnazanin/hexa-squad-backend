@@ -1,13 +1,25 @@
 import { Response , NextFunction } from "express"
 import { addToCart, checkout, getCart, getMyOrders, getOrderById, payOrder, removeFromCart } from "./order.service"
 import { AuthRequest } from "../../types/AuthRequest"
+import { AppError } from "../../common/errors/AppErrors"
 
 export const payOrderController = async (req:AuthRequest, res:Response, next:NextFunction) => {
     try{
         const userId = req.user?.id
         const orderId = Number(req.params.orderId)
 
-        const order = await payOrder(userId as number , orderId)
+        if (!Number.isInteger(orderId) || orderId <= 0) {
+            throw new AppError("Invalid order ID", 400);
+        }
+
+        if(!userId){
+            throw new AppError(
+                "Unauthorized",
+                401
+            )
+        }
+
+        const order = await payOrder(userId , orderId)
 
         return res.status(200).json({
             message: "Order paid successfully",
@@ -30,8 +42,15 @@ export const addToCartController = async (
     const userId = req.user?.id;
     const { courseId } = req.body;
 
+     if(!userId){
+       throw new AppError(
+       "Unauthorized",
+       401
+       )
+    }
+
     const order = await addToCart(
-      userId as number,
+      userId,
       courseId
     );
 
@@ -48,7 +67,17 @@ export const getCartController = async (req:AuthRequest , res:Response , next:Ne
     try{
 
         const userId = req.user?.id
-        const cart = await getCart(userId as number)
+
+
+        if(!userId){
+            throw new AppError(
+                "Unauthorized",
+                401
+            )
+        }
+
+
+        const cart = await getCart(userId)
 
         return res.status(200).json({
             cart
@@ -65,13 +94,18 @@ export const removeFromCartController = async (req:AuthRequest , res:Response , 
         const userId = req.user?.id
         const courseId = Number(req.params.courseId)
 
-        if(Number.isNaN(courseId)){
-            return res.status(400).json({
-                message: "Invalid courseId"
-            })
+        if(!userId){
+            throw new AppError(
+                "Unauthorized",
+                401
+            )
         }
 
-        const cart = await removeFromCart(courseId, userId as number )
+        if (!Number.isInteger(courseId) || courseId <= 0) {
+            throw new AppError("Invalid course ID", 400);
+        }
+
+        const cart = await removeFromCart(courseId, userId )
 
         return res.status(200).json({
             message: "Course removed from cart successfully",
@@ -88,7 +122,15 @@ export const checkoutController = async (req:AuthRequest , res:Response , next:N
     try{
         const userId = req.user?.id
 
-        const cart = await checkout(userId as number)
+
+        if(!userId){
+            throw new AppError(
+                "Unauthorized",
+                401
+            )
+        }
+
+        const cart = await checkout(userId)
 
         return res.status(200).json({
             message: "Checkout successful",
@@ -105,7 +147,15 @@ export const getMyOrdersController = async (req:AuthRequest , res:Response , nex
     try{
 
         const userId = req.user?.id
-        const orders = await getMyOrders(userId as number)
+
+        if(!userId){
+            throw new AppError(
+                "Unauthorized",
+                401
+            )
+        }
+
+        const orders = await getMyOrders(userId)
 
         return res.status(200).json({
             orders
@@ -122,13 +172,19 @@ export const getOrderByIdController = async (req:AuthRequest , res:Response , ne
         const userId = req.user?.id
         const orderId = Number(req.params.orderId)
 
-        if(Number.isNaN(orderId)){
-            return res.status(400).json({
-                message: "Invalid orderId"
-            })
+
+        if(!userId){
+            throw new AppError(
+                "Unauthorized",
+                401
+            )
         }
 
-        const order = await getOrderById(userId as number , orderId)
+        if (!Number.isInteger(orderId) || orderId <= 0) {
+            throw new AppError("Invalid order ID", 400);
+        }
+
+        const order = await getOrderById(userId , orderId)
 
         return res.status(200).json({
             order

@@ -1,24 +1,41 @@
 import {z} from "zod"
 
+const languageSchema = z.enum([
+  "FA",
+  "EN"
+])
+
+const blogTranslationSchema = z.object({
+  language: languageSchema,
+  title: z.string().min(3),
+  shortDescription: z.string().min(10),
+  content: z.string().min(20)
+})
+
 
 export const createBlogSchema = z.object({
- title: z.string().trim().min(3),
+ translations: z.array(
+  blogTranslationSchema
+ ).length(2),
  coverImage: z.string().trim().min(1),
  blogImage: z.string().trim().optional(),
- shortDescription: z.string().trim().min(10),
- content: z.string().trim().min(20),
- author: z.string().trim().min(2) 
+ author: z.string().trim().min(1) 
 })
 
 export const updateBlogSchema = z.object({
-  title: z.string().trim().min(3).optional(),
+  translations: z.array(
+    blogTranslationSchema
+  ).max(2).optional(),
   coverImage: z.string().trim().min(1).optional(),
   blogImage: z.string().trim().optional(),
-  shortDescription: z.string().trim().min(10).optional(),
-  content: z.string().trim().min(20).optional(),
   author: z.string().trim().min(2).optional(),
 });
 
 export const blogReactionSchema = z.object({
   type: z.enum(["LIKE", "DISLIKE"]),
 });
+
+
+export type CreateBlogInput = z.infer<typeof createBlogSchema>
+
+export type UpdateBlogInput = z.infer<typeof updateBlogSchema>

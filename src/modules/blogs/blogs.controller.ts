@@ -1,6 +1,8 @@
 import { NextFunction , Response , Request } from "express";
 import { AuthRequest } from "../../types/AuthRequest";
-import { addBlogFavorite, createBlog, createBlogComment, createBlogReply, deleteBlog, getAllBlogs, getBlogById, getBlogComments, likeBlogComment, likeDislikeBlog, removeBlogFavorite, removeBlogReaction, unlikeBlogComment, updateBlog } from "./blogs.service";
+import { addBlogFavorite, createBlog, createBlogComment, createBlogReply, deleteBlog, getAllBlogs, getBlogById, getBlogComments, likeBlogComment, likeDislikeBlog, removeBlogFavorite, removeBlogReaction, unlikeBlogComment, updateBlog, uploadBlogCover as uploadBlogCoverService ,  uploadBlogImage as uploadBlogImageService } from "./blogs.service";
+import { AppError } from "../../common/errors/AppErrors";
+import { Language } from "../../generated/prisma/enums";
 
 
 export const createBlogController = async (req: AuthRequest,res: Response , next:NextFunction) => {
@@ -21,11 +23,18 @@ export const getAllBlogsController = async (req:Request , res:Response , next:Ne
         const page = Number(req.query.page) || 1
         const limit = Number(req.query.limit) || 10
 
-        const search = typeof req.query.search === "string"
-        ? req.query.search
-        : undefined
+        const search = typeof req.query.search === "string" ? req.query.search : undefined
 
-        const result = await getAllBlogs(page , limit , search)
+        const lang = typeof req.query.lang === "string" ? req.query.lang : Language.FA
+
+        if(lang !== Language.FA && lang !== Language.EN) {
+          throw new AppError(
+            "Invalid language use FA or EN",
+            400
+          )
+        }
+
+        const result = await getAllBlogs(page , limit , search, lang)
 
         return res.status(200).json({
             result
@@ -40,13 +49,23 @@ export const getBlogByIdController = async ( req: Request, res: Response , next:
   try {
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+        throw new AppError("Invalid blog ID", 400);
     }
 
-    const blog = await getBlogById(blogId);
+    const lang =
+            typeof req.query.lang === "string"
+                ? req.query.lang
+                : Language.FA
+
+        if (lang !== Language.FA && lang !== Language.EN) {
+            throw new AppError(
+                "Invalid language. use FA or EN",
+                400
+            )
+        }
+
+    const blog = await getBlogById(blogId,lang);
 
     return res.status(200).json({
       blog,
@@ -61,11 +80,9 @@ export const updateBlogController = async (req: Request, res: Response , next:Ne
   try {
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
-    }
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+    throw new AppError("Invalid blog ID", 400);
+    } 
 
     const blog = await updateBlog(
       blogId,
@@ -85,10 +102,8 @@ export const deleteBlogController = async (req: Request, res: Response , next:Ne
   try {
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+        throw new AppError("Invalid blog ID", 400);
     }
 
     await deleteBlog(blogId);
@@ -107,14 +122,16 @@ export const createBlogCommentController = async (req: AuthRequest, res: Respons
     const userId = req.user?.id;
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+    throw new AppError("Invalid blog ID", 400);
     }
 
     const comment = await createBlogComment(
-      userId as number,
+      userId,
       blogId,
       req.body.content
     );
@@ -133,10 +150,8 @@ export const getBlogCommentsController = async (req: Request, res: Response , ne
   try {
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+        throw new AppError("Invalid blog ID", 400);
     }
 
     const comments = await getBlogComments(blogId);
@@ -145,12 +160,8 @@ export const getBlogCommentsController = async (req: Request, res: Response , ne
       comments,
     });
   } catch (error) {
-    return res.status(400).json({
-      message:
-        error instanceof Error
-          ? error.message
-          : "Something went wrong",
-    });
+    next(error)
+     
   }
 };
 
@@ -160,14 +171,16 @@ export const createBlogReplyController = async (req: AuthRequest, res: Response 
     const userId = req.user?.id;
     const commentId = Number(req.params.commentId);
 
-    if (Number.isNaN(commentId)) {
-      return res.status(400).json({
-        message: "Invalid comment ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(commentId) || commentId <= 0) {
+        throw new AppError("Invalid comment ID", 400);
     }
 
     const reply = await createBlogReply(
-      userId as number,
+      userId,
       commentId,
       req.body.content
     );
@@ -187,14 +200,16 @@ export const likeBlogCommentController = async ( req: AuthRequest,res: Response 
     const userId = req.user?.id;
     const commentId = Number(req.params.commentId);
 
-    if (Number.isNaN(commentId)) {
-      return res.status(400).json({
-        message: "Invalid comment ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(commentId) || commentId <= 0) {
+        throw new AppError("Invalid comment ID", 400);
     }
 
     const like = await likeBlogComment(
-      userId as number,
+      userId,
       commentId
     );
 
@@ -213,14 +228,16 @@ export const unlikeBlogCommentController = async ( req: AuthRequest, res: Respon
     const userId = req.user?.id;
     const commentId = Number(req.params.commentId);
 
-    if (Number.isNaN(commentId)) {
-      return res.status(400).json({
-        message: "Invalid comment ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(commentId) || commentId <= 0) {
+        throw new AppError("Invalid comment ID", 400);
     }
 
     await unlikeBlogComment(
-      userId as number,
+      userId,
       commentId
     );
 
@@ -238,14 +255,16 @@ export const likeDislikeBlogController = async (req: AuthRequest, res: Response 
     const userId = req.user?.id;
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+        throw new AppError("Invalid blog ID", 400);
     }
 
     const reaction = await likeDislikeBlog(
-      userId as number,
+      userId,
       blogId,
       req.body.type
     );
@@ -266,13 +285,15 @@ export const removeBlogReactionController = async ( req: AuthRequest, res: Respo
     const userId = req.user?.id;
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
     }
 
-    await removeBlogReaction(userId as number, blogId);
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+        throw new AppError("Invalid blog ID", 400);
+    }
+
+    await removeBlogReaction(userId, blogId);
 
     return res.status(200).json({
       message: "Reaction removed successfully",
@@ -288,14 +309,16 @@ export const addBlogFavoriteController = async ( req: AuthRequest, res: Response
     const userId = req.user?.id;
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+    throw new AppError("Invalid blog ID", 400);
     }
 
     const favorite = await addBlogFavorite(
-      userId as number,
+      userId,
       blogId
     );
 
@@ -315,14 +338,16 @@ export const removeBlogFavoriteController = async ( req: AuthRequest, res: Respo
     const userId = req.user?.id;
     const blogId = Number(req.params.blogId);
 
-    if (Number.isNaN(blogId)) {
-      return res.status(400).json({
-        message: "Invalid blog ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }
+
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+        throw new AppError("Invalid blog ID", 400);
     }
 
     await removeBlogFavorite(
-      userId as number,
+      userId,
       blogId
     );
 
@@ -331,5 +356,83 @@ export const removeBlogFavoriteController = async ( req: AuthRequest, res: Respo
     });
   } catch (error) {
    next(error)
+  }
+};
+
+
+export const uploadCover = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.file) {
+      throw new AppError(
+        "Blog cover image is required",
+        400
+      );
+    }
+
+    const blogId = Number(req.params.id);
+
+    if (!Number.isInteger(blogId) || blogId <= 0) {
+      throw new AppError(
+        "Invalid blog ID",
+        400
+      );
+    }
+
+    const blog = await uploadBlogCoverService(
+      blogId,
+      req.file
+    );
+
+    return res.status(200).json({
+      message: "Blog cover image uploaded successfully",
+      blog,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
+export const uploadImage = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.file) {
+      throw new AppError(
+        "Blog image is required",
+        400
+      );
+    }
+
+    const blogId = Number(req.params.id);
+
+    if (
+      !Number.isInteger(blogId) ||
+      blogId <= 0
+    ) {
+      throw new AppError(
+        "Invalid blog ID",
+        400
+      );
+    }
+
+    const blog = await uploadBlogImageService(
+      blogId,
+      req.file
+    );
+
+    return res.status(200).json({
+      message: "Blog image uploaded successfully",
+      blog,
+    });
+  } catch (error) {
+    next(error);
   }
 };

@@ -2,7 +2,7 @@ import { Request , Response , NextFunction } from "express"
 import { AppError } from "../../common/errors/AppErrors"
 import { AuthRequest } from "../../types/AuthRequest"
 import { createSectionService, deleteSection, getCourseSections, updateSection } from "./sections.service"
-
+import { Language } from "../../generated/prisma/enums"
 
 
 export const createSection = async (req:AuthRequest , res:Response , next:NextFunction) => {
@@ -15,6 +15,10 @@ export const createSection = async (req:AuthRequest , res:Response , next:NextFu
         }
 
         const courseId = Number(req.params.courseId)
+
+        if (!Number.isInteger(courseId) || courseId <= 0) {
+            throw new AppError("Invalid course ID", 400);
+        }
         
         const section = await createSectionService(courseId, req.user.id, req.body)
 
@@ -32,6 +36,11 @@ export const createSection = async (req:AuthRequest , res:Response , next:NextFu
 export const getSections = async (req:Request , res:Response , next:NextFunction) =>{
     try{
         const courseId = Number(req.params.courseId)
+
+        if (!Number.isInteger(courseId) || courseId <= 0) {
+            throw new AppError("Invalid course ID", 400);
+        }
+
         const sections = await getCourseSections(courseId)
         return res.status(200).json({
             sections
@@ -48,14 +57,16 @@ export const updateSectionController = async ( req: AuthRequest, res: Response ,
     const userId = req.user?.id;
     const sectionId = Number(req.params.sectionId);
 
-    if (Number.isNaN(sectionId)) {
-      return res.status(400).json({
-        message: "Invalid section ID",
-      });
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }   
+
+    if (!Number.isInteger(sectionId) || sectionId <= 0) {
+        throw new AppError("Invalid section ID", 400);
     }
 
     const section = await updateSection(
-      userId as number,
+      userId,
       sectionId,
       req.body
     );
@@ -72,17 +83,18 @@ export const updateSectionController = async ( req: AuthRequest, res: Response ,
 
 export const deleteSectionController = async (req:AuthRequest , res: Response , next:NextFunction) => {
     try{
-        const userId = req.user?.id
-        const sectionId = Number(req.params.sectionId)
+     const userId = req.user?.id
+     const sectionId = Number(req.params.sectionId)
 
+    if (!userId) {
+    throw new AppError("Authentication required", 401);
+    }  
 
-    if (Number.isNaN(sectionId)) {
-      return res.status(400).json({
-        message: "Invalid section ID",
-      });
+    if (!Number.isInteger(sectionId) || sectionId <= 0) {
+        throw new AppError("Invalid section ID", 400);
     }
 
-    await deleteSection(userId as number, sectionId)
+    await deleteSection(userId, sectionId)
     
     return res.status(200).json({
         message: "Section deleted successfully"

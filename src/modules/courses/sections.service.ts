@@ -1,18 +1,8 @@
 import { AppError } from "../../common/errors/AppErrors";
 import { prisma } from "../../config/prisma";
+import { CreateSectionInput ,UpdateSectionInput } from "./sections.schema";
 
-type UpdateSectionInput = {
-    title: string,
-    order: number
-}
-
-export const createSectionService = async (
-    courseId: number,
-    userId: number , 
-    data: {
-        title: string;
-        order: number;
-    }) => {
+export const createSectionService = async ( courseId: number, userId: number, data: CreateSectionInput ) => {
 
         const teacher = await prisma.teacher.findUnique({
             where: {
@@ -49,9 +39,17 @@ export const createSectionService = async (
 
         const section = await prisma.section.create({
             data: {
-                title: data.title,
+                translations: {
+                    create: data.translations.map((translation) => ({
+                        language: translation.language,
+                        title: translation.title
+                    }))
+                },
                 order: data.order,
                 courseId
+            },
+            include: {
+                translations: true
             }
         })
 
@@ -109,7 +107,33 @@ export const updateSection = async (userId:number , sectionId: number, data: Upd
         where: {
             id: sectionId
         },
-        data
+        data: {
+            ...(data.order !== undefined && {
+                order: data.order
+            }),
+            ...(data.translations !== undefined && {
+                translations: {
+                    upsert: data.translations.map((translation) => ({
+                        where: {
+                            sectionId_language: {
+                                sectionId,
+                                language: translation.language
+                            }
+                        },
+                        update:{
+                            title: translation.title
+                        },
+                        create: {
+                            language:translation.language,
+                            title: translation.title
+                        }
+                    }))
+                }
+            })
+        },
+        include: {
+            translations: true
+        }
     })
 
     return updatedSection

@@ -1,28 +1,31 @@
 import { AppError } from "../../common/errors/AppErrors";
 import { prisma } from "../../config/prisma"
+import { Language } from "../../generated/prisma/enums";
+import { CreateBlogInput , UpdateBlogInput} from "./blogs.schema";
+import fs from "fs/promises"
+import path from "path"
 
-
-
-type CreateBlogInput = {
-    title: string,
-    coverImage: string,
-    blogImage: string,
-    shortDescription: string,
-    content: string,
-    author:string 
-}
 
 export const createBlog = async (
   data: CreateBlogInput
 ) => {
   const blog = await prisma.blog.create({
     data: {
-      title: data.title,
       coverImage: data.coverImage,
-      blogImage: data.blogImage,
-      shortDescription: data.shortDescription,
-      content: data.content,
       author: data.author,
+
+      ...(data.blogImage !== undefined && {
+        blogImage: data.blogImage
+      }),
+
+      translations: {
+        create: data.translations.map((translation) => ({
+          language: translation.language,
+          title: translation.title,
+          shortDescription: translation.shortDescription,
+          content: translation.content
+        }))
+      }
     },
   });
 
@@ -32,63 +35,95 @@ export const createBlog = async (
 export const getAllBlogs = async (
   page: number,
   limit: number,
-  search?: string
+  search?: string,
+  lang: Language = Language.FA
 ) => {
   const skip = (page - 1) * limit;
 
   const where = search
     ? {
-        OR: [
-          {
-            title: {
-              contains: search,
-              mode: "insensitive" as const,
-            },
-          },
-          {
-            shortDescription: {
-              contains: search,
-              mode: "insensitive" as const,
-            },
-          },
-          {
-            content: {
-              contains: search,
-              mode: "insensitive" as const,
-            },
-          },
-        ],
+        translations: {
+          some: {
+            language: lang,
+            OR: [
+              {
+                title: {
+                  contains: search,
+                  mode: "insensitive" as const
+                }
+              },
+              {
+                shortDescription: {
+                  contains: search,
+                  mode: "insensitive" as const
+                }
+              },
+              {
+                content: {
+                  contains: search,
+                  mode: "insensitive" as const
+                }
+              }
+            ]
+          }
+        }
       }
-    : undefined;
+    : {};
 
   const [blogs, total] = await Promise.all([
     prisma.blog.findMany({
-     ...(where ? { where } : {}),
+      where,
       skip,
       take: limit,
       orderBy: {
-        createdAt: "desc",
+        createdAt: "desc"
       },
+      include: {
+        translations: {
+          where: {
+            language: lang
+          }
+        }
+      }
     }),
 
     prisma.blog.count({
-     ...(where ? { where } : {})
-    }),
+      where
+    })
   ]);
 
+  const formattedBlogs = blogs.map((blog) => {
+    const translation = blog.translations[0];
+
+    return {
+      id: blog.id,
+      coverImage: blog.coverImage,
+      blogImage: blog.blogImage,
+      viewCount: blog.viewCount,
+      author: blog.author,
+
+      title: translation?.title ?? "",
+      shortDescription: translation?.shortDescription ?? "",
+      content: translation?.content ?? "",
+
+      createdAt: blog.createdAt,
+      updatedAt: blog.updatedAt
+    };
+  });
+
   return {
-    blogs,
+    blogs: formattedBlogs,
     pagination: {
       page,
       limit,
       total,
-      totalPages: Math.ceil(total / limit),
-    },
+      totalPages: Math.ceil(total / limit)
+    }
   };
 };
 
 
-export const getBlogById = async (blogId: number) => {
+export const getBlogById = async (blogId: number, lang: Language = Language.FA) => {
   const blog = await prisma.blog.findUnique({
     where: {
       id: blogId,
@@ -155,26 +190,65 @@ export const getBlogById = async (blogId: number) => {
 
 export const updateBlog = async (
   blogId: number,
-  data: CreateBlogInput
+  data: UpdateBlogInput
 ) => {
   const blog = await prisma.blog.findUnique({
     where: {
-      id: blogId,
-    },
+      id: blogId
+    }
   });
 
   if (!blog) {
     throw new AppError(
       "Blog not found",
-       404
-      );
+      404
+    );
   }
 
   const updatedBlog = await prisma.blog.update({
     where: {
-      id: blogId,
+      id: blogId
     },
-    data,
+
+    data: {
+      ...(data.coverImage !== undefined && {
+        coverImage: data.coverImage
+      }),
+
+      ...(data.blogImage !== undefined && {
+        blogImage: data.blogImage
+      }),
+
+      ...(data.author !== undefined && {
+        author: data.author
+      }),
+
+      ...(data.translations !== undefined && {
+        translations: {
+          upsert: data.translations.map((translation) => ({
+            where: {
+              blogId_language: {
+                blogId,
+                language: translation.language
+              }
+            },
+
+            update: {
+              title: translation.title,
+              shortDescription: translation.shortDescription,
+              content: translation.content
+            },
+
+            create: {
+              language: translation.language,
+              title: translation.title,
+              shortDescription: translation.shortDescription,
+              content: translation.content
+            }
+          }))
+        }
+      })
+    }
   });
 
   return updatedBlog;
@@ -564,7 +638,7 @@ export const removeBlogFavorite = async ( userId: number, blogId: number) => {
   if (!favorite) {
     throw new AppError(
       "Blog is not in favorites",
-      400
+      404
     );
   }
 
@@ -573,4 +647,95 @@ export const removeBlogFavorite = async ( userId: number, blogId: number) => {
       id: favorite.id,
     },
   });
+};
+
+
+export const uploadBlogCover = async ( blogId: number, file: Express.Multer.File) => {
+
+  const blog = await prisma.blog.findUnique({
+    where: {
+      id: blogId,
+    },
+  });
+
+  if (!blog) {
+    throw new AppError(
+      "Blog not found",
+      404
+    );
+  }
+
+  if (blog.coverImage) {
+    const oldImagePath = path.join(
+      process.cwd(),
+      "src",
+      blog.coverImage.replace(/^\/+/, "")
+    );
+
+    try {
+      await fs.unlink(oldImagePath);
+    } catch {
+      // Old image does not exist on disk
+    }
+  }
+
+  const imagePath = `/uploads/blogs/${file.filename}`;
+
+  const updatedBlog = await prisma.blog.update({
+    where: {
+      id: blogId,
+    },
+    data: {
+      coverImage: imagePath,
+    },
+  });
+
+  return updatedBlog;
+};
+
+
+
+export const uploadBlogImage = async (
+  blogId: number,
+  file: Express.Multer.File
+) => {
+  const blog = await prisma.blog.findUnique({
+    where: {
+      id: blogId,
+    },
+  });
+
+  if (!blog) {
+    throw new AppError(
+      "Blog not found",
+      404
+    );
+  }
+
+  if (blog.blogImage) {
+    const oldImagePath = path.join(
+      process.cwd(),
+      "src",
+      blog.blogImage.replace(/^\/+/, "")
+    );
+
+    try {
+      await fs.unlink(oldImagePath);
+    } catch {
+      // Old image does not exist on disk
+    }
+  }
+
+  const imagePath = `/uploads/blogs/${file.filename}`;
+
+  const updatedBlog = await prisma.blog.update({
+    where: {
+      id: blogId,
+    },
+    data: {
+      blogImage: imagePath,
+    },
+  });
+
+  return updatedBlog;
 };

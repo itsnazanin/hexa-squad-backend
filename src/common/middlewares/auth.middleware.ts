@@ -1,8 +1,9 @@
 import { AppError } from "../errors/AppErrors";
 import jwt from "jsonwebtoken"
-import { Request , Response , NextFunction } from "express";
+import { Response , NextFunction } from "express";
 import { AuthRequest } from "../../types/AuthRequest";
 import { prisma } from "../../config/prisma";
+import { env } from "../../config/env";
 
 
 export const authMiddleware = async (req:AuthRequest, res:Response , next:NextFunction) => {
@@ -27,19 +28,30 @@ export const authMiddleware = async (req:AuthRequest, res:Response , next:NextFu
 
         const decoded = jwt.verify(
             token,
-            process.env.JWT_SECRET!
-        ) as { userId: number }
+            env.JWT_SECRET!
+        )
+
+        if (typeof decoded !== "object" || decoded === null || !("userId" in decoded) || typeof decoded.userId !== "number"){
+            throw new AppError(
+                "invalid token payload",
+                401
+            )
+        }
 
         const user = await prisma.user.findUnique({
             where: {
                 id: decoded.userId
+            },
+            select: {
+                id: true,
+                role:true
             }
         })
 
         if(!user){
             throw new AppError(
-                "User not found",
-                404
+                "Unauthorized",
+                401
             )
         }
 

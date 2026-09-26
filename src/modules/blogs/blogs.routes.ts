@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { authMiddleware } from "../../common/middlewares/auth.middleware";
 import { validate } from "../../common/middlewares/validate.middleware";
-import { addBlogFavoriteController, createBlogCommentController, createBlogController, createBlogReplyController, deleteBlogController, getAllBlogsController, getBlogByIdController, getBlogCommentsController, likeBlogCommentController, likeDislikeBlogController, removeBlogFavoriteController, removeBlogReactionController, unlikeBlogCommentController, updateBlogController } from "./blogs.controller";
+import { addBlogFavoriteController, createBlogCommentController, createBlogController, createBlogReplyController, deleteBlogController, getAllBlogsController, getBlogByIdController, getBlogCommentsController, likeBlogCommentController, likeDislikeBlogController, removeBlogFavoriteController, removeBlogReactionController, unlikeBlogCommentController, updateBlogController, uploadCover, uploadImage } from "./blogs.controller";
 import { blogReactionSchema, createBlogSchema, updateBlogSchema } from "./blogs.schema";
 import { createCommentSchema } from "../courses/courses.schema";
+import { uploadBlogCover, uploadBlogImage } from "../../common/middlewares/upload.middleware";
 
 const router = Router()
 
@@ -21,5 +22,7 @@ router.post( "/:blogId/reaction", authMiddleware, validate(blogReactionSchema),l
 router.delete( "/:blogId/reaction", authMiddleware, removeBlogReactionController);
 router.post("/:blogId/favorite", authMiddleware, addBlogFavoriteController);
 router.delete("/:blogId/favorite", authMiddleware, removeBlogFavoriteController);
+router.post("/:id/cover", authMiddleware, uploadBlogCover.single("cover"), uploadCover);
+router.post("/:id/image",authMiddleware,uploadBlogImage.single("image"),uploadImage);
 
 export default router

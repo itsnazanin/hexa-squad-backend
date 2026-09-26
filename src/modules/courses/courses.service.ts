@@ -1,7 +1,25 @@
 import { AppError } from "../../common/errors/AppErrors"
 import { prisma } from "../../config/prisma"
+import { Language } from "../../generated/prisma/enums";
 import { createCourseDataType } from "./courses.schema"
+import fs from "fs/promises"
+import path from "path"
 
+
+type UpdateCourseInput = {
+    translations?: {
+        language: "FA" | "EN";
+        title: string;
+        shortDescription: string;
+        description: string;
+    }[];
+    status?: "PENDING" | "COMPLETED";
+    startDate?: Date | null;
+    endDate?: Date | null;
+    courseTime?: number;
+    price?: number;
+    categoryId?: number;
+};
 
 export const createCourseService = async (userId:number , data:createCourseDataType) => {
     const teacher = await prisma.teacher.findUnique({
@@ -21,25 +39,36 @@ export const createCourseService = async (userId:number , data:createCourseDataT
 
       const course = await tx.course.create({
         data: {
-            title: data.title,
-            shortDescription: data.shortDescription,
-            description: data.description,
             status: data.status,
             startDate: data.startDate ?? null,
             endDate: data.endDate ?? null, 
             courseTime: data.courseTime,
             price: data.price , 
             categoryId: data.categoryId , 
-            teacherId: teacher.id
+            teacherId: teacher.id,
+
+            translations: {
+                create: data.translations.map((translation) => ({
+                    language: translation.language,
+                    title: translation.title,
+                    shortDescription: translation.shortDescription,
+                    description: translation.description
+                }))
+            }
         }
       })
 
       for (const sectionData of data.sections){
          const section = await tx.section.create({
             data: {
-                title: sectionData.title,
                 order: sectionData.order,
-                courseId: course.id
+                courseId: course.id,
+                translations: {
+                    create: sectionData.translations.map((translation) => ({
+                        language: translation.language,
+                        title: translation.title
+                    }))
+                }
             }
         });
 
@@ -47,10 +76,16 @@ export const createCourseService = async (userId:number , data:createCourseDataT
 
             await tx.lesson.create({
                 data: {
-                    title: lessonData.title,
                     duration: lessonData.duration,
                     order: lessonData.order,
-                    sectionId: section.id
+                    sectionId: section.id,
+
+                    translations: {
+                        create: lessonData.translations.map((translation) => ({
+                            language: translation.language,
+                            title: translation.title
+                        }))
+                    }
                 }
             });
 
@@ -65,76 +100,302 @@ export const createCourseService = async (userId:number , data:createCourseDataT
 }
 
 
+export const getAllCourses = async (
+    page: number,
+    limit: number,
+    search?: string,
+    categoryId?: number,
+    teacherId?: number,
+    minPrice?: number,
+    maxPrice?: number,
+    priceType?: "FREE" | "PAID",
+    sortBy: string = "createdAt",
+    sortOrder: "asc" | "desc" = "desc",
+    lang: Language = Language.FA
+) => {
 
-
-export const getAllCourses = async (page:number , limit:number , search?:string, categoryId?: number, sortBy:string = "createdAt" , sortOrder: "asc" | "desc" = "desc") => {
-
-    const skip = (page - 1) * limit
+    const skip = (page - 1) * limit;
 
     const where = {
-        ...(search  && {
-            title: {
-                contains: search,
-                mode: "insensitive" as const
+        ...(search && {
+            translations: {
+                some: {
+                    language: lang,
+                    title: {
+                        contains: search,
+                        mode: "insensitive" as const
+                    }
+                }
             }
         }),
 
-        ...(categoryId && {
+        ...(categoryId !== undefined && {
             categoryId
-        })
+        }),
+
+        ...(teacherId !== undefined && {
+            teacherId
+        }),
+
+        ...(
+            minPrice !== undefined ||
+            maxPrice !== undefined ||
+            priceType !== undefined
+                ? {
+                    price: {
+                        ...(minPrice !== undefined && {
+                            gte: minPrice
+                        }),
+
+                        ...(maxPrice !== undefined && {
+                            lte: maxPrice
+                        }),
+
+                        ...(priceType === "FREE" && {
+                            equals: 0
+                        }),
+
+                        ...(priceType === "PAID" && {
+                            gt: 0
+                        })
+                    }
+                }
+                : {}
+        )
+    };
+
+    let orderBy;
+
+    switch (sortBy) {
+
+        case "popular":
+            orderBy = {
+                studentCount: sortOrder
+            };
+            break;
+
+        case "newest":
+            orderBy = {
+                createdAt: sortOrder
+            };
+            break;
+
+        case "cheapest":
+            orderBy = {
+                price: "asc" as const
+            };
+            break;
+
+        case "expensive":
+            orderBy = {
+                price: "desc" as const
+            };
+            break;
+
+        default:
+            orderBy = {
+                studentCount: "desc" as const
+            };
     }
 
     const [courses, total] = await Promise.all([
+
         prisma.course.findMany({
             where,
             skip,
             take: limit,
+            orderBy,
 
-            orderBy: {
-                [sortBy]: sortOrder
-            },
+            include: {
 
-            include:{
-                teacher: true , 
-                category: true
+                translations: {
+                    where: {
+                        language: lang
+                    }
+                },
+
+                teacher: {
+                    select: {
+                        id: true,
+                        avatar: true,
+
+                        translations: {
+                            where: {
+                                language: lang
+                            }
+                        }
+                    }
+                },
+
+                category: {
+                    select: {
+                        id: true,
+
+                        translations: {
+                            where: {
+                                language: lang
+                            }
+                        }
+                    }
+                }
             }
         }),
 
         prisma.course.count({
             where
         })
-    ])
+    ]);
 
-    const totalPages = Math.ceil(total / limit)
+    const formattedCourses = courses.map((course) => {
+
+        const translation = course.translations[0];
+        const teacherTranslation = course.teacher.translations[0];
+        const categoryTranslation = course.category.translations[0];
+
+        return {
+            id: course.id,
+            studentCount: course.studentCount,
+            status: course.status,
+            startDate: course.startDate,
+            endDate: course.endDate,
+            uploadDate: course.uploadDate,
+            courseTime: course.courseTime,
+            price: course.price,
+
+            title: translation?.title ?? "",
+            shortDescription: translation?.shortDescription ?? "",
+            description: translation?.description ?? "",
+
+            teacher: {
+                id: course.teacher.id,
+                avatar: course.teacher.avatar,
+                name: teacherTranslation?.name ?? "",
+                bio: teacherTranslation?.bio ?? ""
+            },
+
+            category: {
+                id: course.category.id,
+                name: categoryTranslation?.name ?? ""
+            },
+
+            createdAt: course.createdAt,
+            updatedAt: course.updatedAt
+        };
+    });
+
+    const totalPages = Math.ceil(total / limit);
 
     return {
-        courses,
+        courses: formattedCourses,
+
         pagination: {
             page,
             limit,
             total,
             totalPages
         }
-    }
-}
+    };
+};
 
 
-
-
-export const getCourseByIdService = async (courseId: number) => {
+export const getCourseByIdService = async (courseId: number , lang: Language = Language.FA) => {
     const course = await prisma.course.findUnique({
         where: {
             id: courseId
         },
         include: {
-            teacher: true,
-            category:true, 
-            comments: true,
-            reviews: true,
-            sections: {
-                include: {
-                    lessons: true
+            teacher: {
+                select: {
+                    id: true,
+                    avatar:true,
+                    
+                    translations: {
+                        where: {
+                            language: lang
+                        }
+                    }
                 }
+            },
+            category: {
+                select: {
+                    id:true,
+                    translations: {
+                        where: {
+                            language: lang
+                        }
+                    }
+                }
+            },
+            translations: {
+                where: {
+                    language: lang
+                }
+            },
+            comments: {
+                where: {
+                    parentId: null
+                },
+                include: {
+                    user: {
+                        select: {
+                            id:true,
+                            name:true,
+                            avatar:true
+                        }
+                    },
+                    replies: {
+                        include: {
+                            user: {
+                                select: {
+                                    id:true,
+                                    name:true,
+                                    avatar: true
+                                }
+                            }
+                        }
+                    }
+                },
+                orderBy: {
+                    createdAt: "desc"
+                }
+            },
+            reviews: {
+                include: {
+                    user:{
+                        select: {
+                            id:true,
+                            name:true,
+                            avatar:true
+                        }
+                    }
+                },
+                orderBy: {
+                    createdAt: "desc"
+                }
+            },
+            sections: {
+               orderBy: {
+                 order: "asc"
+               },
+               include: {
+                translations: {
+                    where: {
+                        language: lang
+                    }
+                },
+                lessons: {
+                    orderBy: {
+                        order: "asc"
+                    },
+                    include: {
+                        translations: {
+                            where: {
+                                language: lang
+                            }
+                        }
+                    }
+                }
+               }
             }
 
         }
@@ -147,11 +408,72 @@ export const getCourseByIdService = async (courseId: number) => {
         )
     }
 
-    return course
+    const courseTranslation = course.translations?.[0]
+    const teacherTranslation = course.teacher.translations?.[0]
+    const categoryTranslation = course.category.translations?.[0]
+
+    return {
+        id: course.id,
+        studentCount: course.studentCount,
+        status: course.status,
+        startDate: course.startDate,
+        endDate: course.endDate,
+        uploadDate: course.uploadDate,
+        courseTime: course.courseTime,
+        price: course.price,
+        title: courseTranslation?.title ?? "",
+        shortDescription: courseTranslation?.shortDescription ?? "",
+        description:  courseTranslation?.description ?? "",
+        teacher: {
+         id: course.teacher.id,
+         avatar: course.teacher.avatar,
+         name: teacherTranslation?.name ?? "",
+         bio: teacherTranslation?.bio ?? ""
+         },
+         category: {
+        id: course.category.id,
+
+        name: categoryTranslation?.name ?? ""
+    },
+
+    sections: course.sections.map((section) => {
+
+        const sectionTranslation =
+            section.translations?.[0]
+
+        return {
+            id: section.id,
+
+            order: section.order,
+
+            title: sectionTranslation?.title ?? "",
+
+            lessons: section.lessons.map((lesson) => {
+
+                const lessonTranslation =
+                    lesson.translations?.[0]
+
+                return {
+                    id: lesson.id,
+
+                    duration: lesson.duration,
+
+                    order: lesson.order,
+
+                    title:
+                        lessonTranslation?.title ?? ""
+                }
+            })
+        }
+    }),
+    comments: course.comments,
+    reviews: course.reviews,
+    createdAt: course.createdAt,
+    }
 }
 
 
-export const updateCourseService = async (courseId: number , userId:number , data:any) => {
+export const updateCourseService = async (courseId: number , userId:number , data:UpdateCourseInput) => {
 
     const teacher = await prisma.teacher.findUnique({
         where: {
@@ -186,14 +508,44 @@ export const updateCourseService = async (courseId: number , userId:number , dat
         )
     }
 
-    const updatedCourse = await prisma.course.update({
-        where: {
-            id: courseId
-        },
-        data: {
-            ...data
-        }
+    const { translations, ...courseData } = data
+
+    const updatedCourse = await prisma.$transaction(async (tx) => {
+        const course = await tx.course.update({
+            where: {
+                id: courseId
+            },
+            data: courseData
+        })
+
+        if(translations){
+        for(const translation of translations){
+            await tx.courseTranslation.upsert({
+                where: {
+                    courseId_language: {
+                        courseId,
+                        language: translation.language
+                    }
+                },
+                update: {
+                    title: translation.title,
+                    shortDescription: translation.shortDescription,
+                    description: translation.description
+                },
+                create: {
+                    courseId,
+                    language: translation.language,
+                    title: translation.title,
+                    shortDescription: translation.shortDescription,
+                    description: translation.description
+                }
+            })
+          }
+       } 
+
+       return course
     })
+
 
     return updatedCourse
 }
@@ -242,40 +594,192 @@ export const deleteCourseService = async (courseId: number , userId: number) => 
 }
 
 
-export const getSectionLessonsService = async (sectionId: number) => {
+export const getSectionLessonsService = async (
+    sectionId: number,
+    lang: Language = Language.FA
+) => {
+
     const lessons = await prisma.lesson.findMany({
+
         where: {
             sectionId
         },
+
         orderBy: {
             order: "asc"
+        },
+
+        include: {
+
+            translations: {
+                where: {
+                    language: lang
+                }
+            }
         }
     })
 
-    return lessons
+
+    return lessons.map((lesson) => {
+
+        const translation =
+            lesson.translations[0]
+
+        return {
+
+            id: lesson.id,
+
+            duration: lesson.duration,
+
+            order: lesson.order,
+
+            title:
+                translation?.title ?? "",
+
+            createdAt:
+                lesson.createdAt
+        }
+    })
 }
 
 
 
-export const getPurchasedCourses = async (userId: number) => {
-    const purchasedCourses = await prisma.purchasedCourse.findMany({
-        where: {
-            userId
-        },
-        include: {
+export const getPurchasedCourses = async (
+    userId: number,
+    lang: Language = Language.FA
+) => {
+
+    const purchasedCourses =
+        await prisma.purchasedCourse.findMany({
+
+            where: {
+                userId
+            },
+
+            include: {
+
+                course: {
+
+                    include: {
+
+                        translations: {
+                            where: {
+                                language: lang
+                            }
+                        },
+
+                        teacher: {
+                            select: {
+                                id: true,
+                                avatar: true,
+
+                                translations: {
+                                    where: {
+                                        language: lang
+                                    }
+                                }
+                            }
+                        },
+
+                        category: {
+                            select: {
+                                id: true,
+
+                                translations: {
+                                    where: {
+                                        language: lang
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                }
+            },
+
+            orderBy: {
+                createdAt: "desc"
+            }
+        })
+
+
+    return purchasedCourses.map((item) => {
+
+        const courseTranslation =
+            item.course.translations[0]
+
+        const teacherTranslation =
+            item.course.teacher.translations[0]
+
+        const categoryTranslation =
+            item.course.category.translations[0]
+
+        return {
+
+            id: item.id,
+
+            createdAt: item.createdAt,
+
             course: {
-                include: {
-                    teacher: true,
-                    category: true
+
+                id: item.course.id,
+
+                studentCount:
+                    item.course.studentCount,
+
+                status:
+                    item.course.status,
+
+                startDate:
+                    item.course.startDate,
+
+                endDate:
+                    item.course.endDate,
+
+                uploadDate:
+                    item.course.uploadDate,
+
+                courseTime:
+                    item.course.courseTime,
+
+                price:
+                    item.course.price,
+
+                title:
+                    courseTranslation?.title ?? "",
+
+                shortDescription:
+                    courseTranslation?.shortDescription ?? "",
+
+                description:
+                    courseTranslation?.description ?? "",
+
+                teacher: {
+
+                    id:
+                        item.course.teacher.id,
+
+                    avatar:
+                        item.course.teacher.avatar,
+
+                    name:
+                        teacherTranslation?.name ?? "",
+
+                    bio:
+                        teacherTranslation?.bio ?? ""
+                },
+
+                category: {
+
+                    id:
+                        item.course.category.id,
+
+                    name:
+                        categoryTranslation?.name ?? ""
                 }
             }
-        },
-        orderBy: {
-            createdAt: "desc"
         }
     })
-
-    return purchasedCourses
 }
 
 
@@ -350,28 +854,150 @@ export const removeFavorite = async (userId : number , courseId: number) => {
 }
 
 
-export const getFavorites = async (userId: number) => {
-    const favorites = await prisma.favorite.findMany({
-        where: {
-            userId,
-            courseId: {
-                not: null
+export const getFavorites = async (
+    userId: number,
+    lang: Language = Language.FA
+) => {
+
+    const favorites =
+        await prisma.favorite.findMany({
+
+            where: {
+                userId,
+
+                courseId: {
+                    not: null
+                }
+            },
+
+            include: {
+
+                course: {
+
+                    include: {
+
+                        translations: {
+                            where: {
+                                language: lang
+                            }
+                        },
+
+                        teacher: {
+                            select: {
+                                id: true,
+                                avatar: true,
+
+                                translations: {
+                                    where: {
+                                        language: lang
+                                    }
+                                }
+                            }
+                        },
+
+                        category: {
+                            select: {
+                                id: true,
+
+                                translations: {
+                                    where: {
+                                        language: lang
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+
+            orderBy: {
+                createdAt: "desc"
             }
-        },
-        include: {
+        })
+
+
+    return favorites.map((favorite) => {
+
+        if (!favorite.course) {
+            return favorite
+        }
+
+        const courseTranslation =
+            favorite.course.translations[0]
+
+        const teacherTranslation =
+            favorite.course.teacher.translations[0]
+
+        const categoryTranslation =
+            favorite.course.category.translations[0]
+
+        return {
+
+            id: favorite.id,
+
+            createdAt: favorite.createdAt,
+
             course: {
-                include: {
-                    teacher: true,
-                    category: true
+
+                id:
+                    favorite.course.id,
+
+                studentCount:
+                    favorite.course.studentCount,
+
+                status:
+                    favorite.course.status,
+
+                startDate:
+                    favorite.course.startDate,
+
+                endDate:
+                    favorite.course.endDate,
+
+                uploadDate:
+                    favorite.course.uploadDate,
+
+                courseTime:
+                    favorite.course.courseTime,
+
+                price:
+                    favorite.course.price,
+
+                title:
+                    courseTranslation?.title ?? "",
+
+                shortDescription:
+                    courseTranslation?.shortDescription ?? "",
+
+                description:
+                    courseTranslation?.description ?? "",
+
+                teacher: {
+
+                    id:
+                        favorite.course.teacher.id,
+
+                    avatar:
+                        favorite.course.teacher.avatar,
+
+                    name:
+                        teacherTranslation?.name ?? "",
+
+                    bio:
+                        teacherTranslation?.bio ?? ""
+                },
+
+                category: {
+
+                    id:
+                        favorite.course.category.id,
+
+                    name:
+                        categoryTranslation?.name ?? ""
                 }
             }
-        },
-        orderBy: {
-            createdAt: "desc"
         }
     })
-
-    return favorites
 }
 
 
@@ -457,7 +1083,7 @@ export const getCourseReviews = async (courseId: number) => {
                 select: {
                     id: true,
                     name: true,
-                    email: true
+                    avatar: true
                 }
             }
         },
@@ -603,11 +1229,12 @@ export const getCourseComments = async (courseId: number) => {
                             avatar: true
                         }
                     }
-                }
-            },
-            orderBy: {
+                },
+                orderBy: {
                 createdAt: "asc"
-            }
+              }
+            },
+            
         },
         orderBy: {
             createdAt: "desc"
@@ -631,8 +1258,17 @@ export const createReply = async (
   });
 
   if (!parentComment) {
-    throw new Error("Comment not found");
+    throw new AppError(
+        "Comment not found",
+         404);
   }
+
+   if (!parentComment.courseId) {
+     throw new AppError(
+        "This comment does not belong to a course",
+        400
+     );
+   }
 
   const reply = await prisma.comment.create({
     data: {
@@ -667,8 +1303,17 @@ export const likeComment = async (
   });
 
   if (!comment) {
-    throw new Error("Comment not found");
+    throw new AppError(
+        "Comment not found" ,
+         404);
   }
+
+  if (!comment.courseId) {
+    throw new AppError(
+        "This comment does not belong to a course",
+        400
+    );
+}
 
   const existingLike = await prisma.commentLike.findUnique({
     where: {
@@ -680,7 +1325,9 @@ export const likeComment = async (
   });
 
   if (existingLike) {
-    throw new Error("Comment already liked");
+    throw new AppError(
+        "Comment already liked",
+         409);
   }
 
   const like = await prisma.commentLike.create({
@@ -715,4 +1362,58 @@ export const unlikeComment = async (userId: number , commentId: number) => {
             id: like.id
         }
     })
+}
+
+
+export const uploadThumbnail = async (courseId: number , userId: number, file: Express.Multer.File) => {
+    const course = await prisma.course.findUnique({
+        where: {
+            id: courseId
+        },
+        include: {
+            teacher:true
+        }
+    })
+
+    if(!course){
+        throw new AppError(
+            "course not found",
+            404
+        )
+    }
+
+    if(course.teacher.userId !== userId){
+        throw new AppError(
+            "you are not allowed to modify this course",
+            403
+        )
+    }
+
+    if(course.thumbnail){
+        const oldThumbnailPath = path.join(
+            process.cwd(),
+            "src",
+            course.thumbnail.replace(/^\/+/, "")
+        )
+
+        try{
+            await fs.unlink(oldThumbnailPath)
+        }catch{
+
+        }
+    }
+
+    const thumbnailPath = `/uploads/courses/${file.filename}`
+
+    const updatedcourse = await prisma.course.update({
+        where: {
+            id: courseId
+        },
+        data: {
+            thumbnail: thumbnailPath
+        }
+    })
+
+    return updatedcourse
+
 }

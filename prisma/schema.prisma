@@ -41,21 +41,20 @@ enum Role {
 }
 
 model Course {
-  id               Int               @id @default(autoincrement())
-  title            String
-  shortDescription String
-  description      String
-  studentCount     Int               @default(0)
+  id               Int                 @id @default(autoincrement())
+  studentCount     Int                 @default(0)
   status           CourseStatus
   startDate        DateTime?
   endDate          DateTime?
   uploadDate       DateTime?
+  thumbnail        String?
   courseTime       Int
   price            Int
   teacherId        Int
-  teacher          Teacher           @relation(fields: [teacherId], references: [id])
+  teacher          Teacher             @relation(fields: [teacherId], references: [id])
   categoryId       Int
-  category         Category          @relation(fields: [categoryId], references: [id])
+  category         Category            @relation(fields: [categoryId], references: [id])
+  translations     CourseTranslation[]
   comments         Comment[]
   favorites        Favorite[]
   purchasedCourses PurchasedCourse[]
@@ -63,11 +62,29 @@ model Course {
   sections         Section[]
   reviews          Review[]
   reactions        CourseReaction[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@index([teacherId])
   @@index([categoryId])
+}
+
+model CourseTranslation {
+  id               Int      @id @default(autoincrement())
+  courseId         Int
+  language         Language
+  title            String
+  shortDescription String
+  description      String
+  course           Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, language])
+  @@index([courseId])
+}
+
+enum Language {
+  FA
+  EN
 }
 
 model CourseReaction {
@@ -88,40 +105,88 @@ enum CourseStatus {
 }
 
 model Teacher {
+  id           Int                  @id @default(autoincrement())
+  userId       Int                  @unique
+  user         User                 @relation(fields: [userId], references: [id])
+  avatar       String?
+  courses      Course[]
+  translations TeacherTranslation[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+}
+
+model TeacherTranslation {
   id        Int      @id @default(autoincrement())
-  userId    Int      @unique
-  user      User     @relation(fields: [userId], references: [id])
   name      String
-  avatar    String
   bio       String
-  courses   Course[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  language  Language
+  teacherId Int
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, language])
+  @@index([teacherId])
 }
 
 model Section {
-  id        Int      @id @default(autoincrement())
-  title     String
-  order     Int
-  courseId  Int
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  lessons   Lesson[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           Int                  @id @default(autoincrement())
+  order        Int
+  courseId     Int
+  translations SectionTranslation[]
+  course       Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons      Lesson[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
   @@index([courseId])
 }
 
-model Lesson {
+model SectionTranslation {
   id        Int      @id @default(autoincrement())
-  title     String
-  duration  Int
-  order     Int
   sectionId Int
+  language  Language
+  title     String
   section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+
+  @@unique([sectionId, language])
+  @@index([sectionId])
+}
+
+model Lesson {
+  id           Int                 @id @default(autoincrement())
+  duration     Int
+  order        Int
+  sectionId    Int
+  translations LessonTranslation[]
+  section      Section             @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime            @default(now())
+
+  files        LessonFile[]
 
   @@index([sectionId])
+}
+
+model LessonFile {
+  id        Int      @id @default(autoincrement())
+  fileName  String
+  fileUrl   String
+  fileType  String
+  fileSize  Int
+  lessonId  Int
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([lessonId])
+}
+
+model LessonTranslation {
+  id       Int      @id @default(autoincrement())
+  lessonId Int
+  title    String
+  language Language
+  lesson   Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, language])
+  @@index([lessonId])
 }
 
 model Order {
@@ -164,7 +229,7 @@ model Favorite {
   user      User     @relation(fields: [userId], references: [id])
   course    Course?  @relation(fields: [courseId], references: [id])
   blog      Blog?    @relation(fields: [blogId], references: [id])
-  createdAt DateTime
+  createdAt DateTime @default(now())
 
   @@unique([userId, courseId])
   @@unique([userId, blogId])
@@ -235,19 +300,30 @@ model PurchasedCourse {
 }
 
 model Blog {
-  id               Int            @id @default(autoincrement())
+  id           Int               @id @default(autoincrement())
+  coverImage   String
+  blogImage    String?
+  viewCount    Int               @default(0)
+  comments     Comment[]
+  favorites    Favorite[]
+  reactions    BlogReaction[]
+  translations BlogTranslation[]
+  author       String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model BlogTranslation {
+  id               Int      @id @default(autoincrement())
   title            String
-  coverImage       String
-  blogImage        String?
   shortDescription String
   content          String
-  viewCount        Int            @default(0)
-  comments         Comment[]
-  favorites        Favorite[]
-  reactions        BlogReaction[]
-  author           String
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  blogId           Int
+  language         Language
+  blog             Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@unique([blogId, language])
+  @@index([blogId])
 }
 
 model BlogReaction {
@@ -269,8 +345,19 @@ enum ReactionType {
 }
 
 model Category {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  courses   Course[]
-  createdAt DateTime @default(now())
+  id           Int                   @id @default(autoincrement())
+  courses      Course[]
+  translations CategoryTranslation[]
+  createdAt    DateTime              @default(now())
+}
+
+model CategoryTranslation {
+  id         Int      @id @default(autoincrement())
+  categoryId Int
+  language   Language
+  name       String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, language])
+  @@index([categoryId])
 }
