@@ -40,6 +40,25 @@ enum Role {
   TEACHER
 }
 
+enum VerifectionPurpose {
+  LOGIN
+  REGISTER
+}
+
+model VerifectionCode {
+  id          Int   @id   @default(autoincrement())
+  identifier  String
+  purpose     VerifectionPurpose
+  codeHash    String
+  expiresAt   DateTime
+  attempts    Int   @default(0)
+  consumedAt  DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([identifier, purpose])
+  @@index([expiresAt])  
+}
+
 model Course {
   id               Int                 @id @default(autoincrement())
   studentCount     Int                 @default(0)
@@ -193,12 +212,18 @@ model Order {
   id         Int         @id @default(autoincrement())
   totalPrice Int
   status     OrderStatus
-  userId     Int
-  user       User        @relation(fields: [userId], references: [id])
+  userId     Int?
+  user       User?       @relation(fields: [userId], references: [id])
+  guestName  String?
+  guestPhone String?
+  guestEmail String?
+  guestCheckoutTokenHash String?
+  purchasedCourses PurchasedCourse[]
   items      OrderItem[]
   createdAt  DateTime    @default(now())
 
   @@index([userId])
+  @@index([guestPhone])
 }
 
 enum OrderStatus {
@@ -288,14 +313,18 @@ model CommentLike {
 
 model PurchasedCourse {
   id        Int      @id @default(autoincrement())
-  userId    Int
+  userId    Int?
   courseId  Int
-  user      User     @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
+  orderId   Int?
+  order     Order?   @relation(fields: [orderId], references: [id])
   course    Course   @relation(fields: [courseId], references: [id])
   createdAt DateTime @default(now())
 
   @@unique([userId, courseId])
+  @@unique([orderId, courseId])
   @@index([userId])
+  @@index([orderId])
   @@index([courseId])
 }
 
@@ -309,6 +338,7 @@ model Blog {
   reactions    BlogReaction[]
   translations BlogTranslation[]
   author       String
+  authorImage  String?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -317,7 +347,7 @@ model BlogTranslation {
   id               Int      @id @default(autoincrement())
   title            String
   shortDescription String
-  content          String
+  content          String  @db.Text
   blogId           Int
   language         Language
   blog             Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)

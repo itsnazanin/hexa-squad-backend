@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authMiddleware } from "../../common/middlewares/auth.middleware";
+import { authMiddleware, optionalAuthMiddleware } from "../../common/middlewares/auth.middleware";
 import { validate } from "../../common/middlewares/validate.middleware";
 import { addBlogFavoriteController, createBlogCommentController, createBlogController, createBlogReplyController, deleteBlogController, getAllBlogsController, getBlogByIdController, getBlogCommentsController, likeBlogCommentController, likeDislikeBlogController, removeBlogFavoriteController, removeBlogReactionController, unlikeBlogCommentController, updateBlogController, uploadCover, uploadImage } from "./blogs.controller";
 import { blogReactionSchema, createBlogSchema, updateBlogSchema } from "./blogs.schema";
@@ -10,7 +10,7 @@ const router = Router()
 
 router.post("/", authMiddleware , validate(createBlogSchema) , createBlogController)
 router.get("/", getAllBlogsController)
-router.get("/:blogId",getBlogByIdController);
+router.get("/:blogId", optionalAuthMiddleware ,getBlogByIdController);
 router.put("/:blogId",authMiddleware,validate(updateBlogSchema),updateBlogController);
 router.delete("/:blogId",authMiddleware,deleteBlogController);
 router.post("/:blogId/comments", authMiddleware, validate(createCommentSchema),createBlogCommentController);

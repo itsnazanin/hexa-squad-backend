@@ -123,12 +123,18 @@ export const getAllBlogs = async (
 };
 
 
-export const getBlogById = async (blogId: number, lang: Language = Language.FA) => {
+export const getBlogById = async ( blogId: number, lang: Language = Language.FA , userId?: number ) => {
   const blog = await prisma.blog.findUnique({
     where: {
       id: blogId,
     },
     include: {
+      translations: {
+        where: {
+          language: lang,
+        },
+      },
+
       comments: {
         where: {
           parentId: null,
@@ -164,11 +170,34 @@ export const getBlogById = async (blogId: number, lang: Language = Language.FA) 
   });
 
   if (!blog) {
-    throw new AppError(
-      "Blog not found",
-       404
-      );
+    throw new AppError("Blog not found", 404);
   }
+
+  const reactions = await prisma.blogReaction.groupBy({
+    by:["type"],
+    where: {
+      blogId
+    },
+    _count: {
+      _all : true
+    }
+  })
+
+  const likeCount = reactions.find((item) => item.type === "LIKE")?._count._all ?? 0
+
+  const dislikeCount = reactions.find((item) => item.type === "DISLIKE")?._count._all ?? 0
+
+  const userReaction = userId
+  ? await prisma.blogReaction.findUnique({
+    where: {
+      userId_blogId: {
+        userId,
+        blogId
+      }
+    }, select: {
+      type: true
+    }
+  }) : null
 
   await prisma.blog.update({
     where: {
@@ -184,6 +213,9 @@ export const getBlogById = async (blogId: number, lang: Language = Language.FA) 
   return {
     ...blog,
     viewCount: blog.viewCount + 1,
+    likeCount,
+    dislikeCount,
+    userReaction: userReaction?.type ?? null
   };
 };
 

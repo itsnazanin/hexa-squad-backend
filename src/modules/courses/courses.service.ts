@@ -198,6 +198,15 @@ export const getAllCourses = async (
             };
     }
 
+    const priceStats = await prisma.course.aggregate({
+    _min: {
+        price: true
+    },
+    _max: {
+        price: true
+    }
+    });
+
     const [courses, total] = await Promise.all([
 
         prisma.course.findMany({
@@ -237,6 +246,21 @@ export const getAllCourses = async (
                             }
                         }
                     }
+                },
+
+                _count: {
+                    select: {
+                        favorites: true,
+                    }
+                },
+                sections: {
+                    select: {
+                        _count: {
+                            select: {
+                                lessons: true
+                            }
+                        }
+                    }
                 }
             }
         }),
@@ -245,6 +269,11 @@ export const getAllCourses = async (
             where
         })
     ]);
+
+    console.log(
+    "Course 10041 from database:",
+    courses.find((course) => course.id === 10041)
+    );
 
     const formattedCourses = courses.map((course) => {
 
@@ -261,10 +290,17 @@ export const getAllCourses = async (
             uploadDate: course.uploadDate,
             courseTime: course.courseTime,
             price: course.price,
+            thumbnail: course.thumbnail,
+            favoriteCount: course._count.favorites,
 
             title: translation?.title ?? "",
             shortDescription: translation?.shortDescription ?? "",
             description: translation?.description ?? "",
+
+            lessonCount: course.sections.reduce(
+                (total,section) => total + section._count.lessons,
+                0
+            ),
 
             teacher: {
                 id: course.teacher.id,
@@ -293,6 +329,11 @@ export const getAllCourses = async (
             limit,
             total,
             totalPages
+        },
+
+        priceRange: {
+        min: priceStats._min.price ?? 0,
+        max: priceStats._max.price ?? 0
         }
     };
 };
@@ -414,6 +455,7 @@ export const getCourseByIdService = async (courseId: number , lang: Language = L
 
     return {
         id: course.id,
+        thumbnail: course.thumbnail,
         studentCount: course.studentCount,
         status: course.status,
         startDate: course.startDate,
@@ -1234,6 +1276,12 @@ export const getCourseComments = async (courseId: number) => {
                 createdAt: "asc"
               }
             },
+
+            _count: {
+                select: {
+                    likes: true
+                }
+            }
             
         },
         orderBy: {

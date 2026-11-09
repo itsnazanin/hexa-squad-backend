@@ -45,7 +45,7 @@ export const getAllBlogsController = async (req:Request , res:Response , next:Ne
     }
 }
 
-export const getBlogByIdController = async ( req: Request, res: Response , next:NextFunction ) => {
+export const getBlogByIdController = async ( req: AuthRequest, res: Response , next:NextFunction ) => {
   try {
     const blogId = Number(req.params.blogId);
 
@@ -65,7 +65,7 @@ export const getBlogByIdController = async ( req: Request, res: Response , next:
             )
         }
 
-    const blog = await getBlogById(blogId,lang);
+    const blog = await getBlogById(blogId,lang ,req.user?.id);
 
     return res.status(200).json({
       blog,
@@ -146,9 +146,14 @@ export const createBlogCommentController = async (req: AuthRequest, res: Respons
 };
 
 
+
+
 export const getBlogCommentsController = async (req: Request, res: Response , next:NextFunction ) => {
   try {
     const blogId = Number(req.params.blogId);
+
+    console.log("Raw blogId:", req.params.blogId);
+    console.log("Converted blogId:", Number(req.params.blogId));
 
     if (!Number.isInteger(blogId) || blogId <= 0) {
         throw new AppError("Invalid blog ID", 400);
